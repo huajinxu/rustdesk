@@ -230,32 +230,42 @@ jobs:
       - name: Build web
         shell: bash
         run: |
-          # --- 1. 准备目录和依赖 ---
+          # --- 1. 修复 Web 工程结构 ---
           cd flutter
-          # 强制创建 web 目录，防止 No such file 错误
-          mkdir -p web
-          cd web
-          echo "Downloading web deps..."
-          wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
-          tar xzf web_deps.tar.gz
-          cd ..
           
-          # --- 2. 编译 ---
+          # 关键步骤：强制重新生成 web 目录的基础文件 (包括 index.html)
+          # --platforms web 表示只生成 web 相关文件
+          flutter create . --platforms web
+          
+          # --- 2. 下载并覆盖 RustDesk 专用资源 ---
+          cd web
+          echo "Downloading web assets..."
+          # 下载资源包 (这里面主要包含 canvaskit.js 和一些图标配置，不一定包含 index.html)
+          wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
+          tar xzf web_deps.tar.gz || echo "Extract failed or empty, ignoring"
+          
+          # 回到 flutter 根目录
+          cd ..
+
+          # --- 3. 编译 ---
           echo "Building Flutter Web..."
           flutter build web --release --web-renderer canvaskit
 
-          # --- 3. 打包 ---
+          # --- 4. 打包 ---
           cd build
-          if [ -f "../web/README.md" ]; then
-            cp ../web/README.md web
-          else
-            echo "RustDesk Web" > web/README.md
-          fi
+          
+          # 创建一个 README
+          echo "RustDesk Web Client" > web/README.md
           
           dir_name="rustdesk-${{ env.VERSION }}-${{ env.RELEASE_NAME }}"
-          mv web "${dir_name}" && tar czf "${dir_name}".tar.gz "${dir_name}"
           
-          # 移动到工作空间根目录方便上传
+          # 移动 web 文件夹为指定名字
+          mv web "${dir_name}"
+          
+          # 压缩
+          tar czf "${dir_name}".tar.gz "${dir_name}"
+          
+          # 移动到工作空间根目录
           mv "${dir_name}".tar.gz $GITHUB_WORKSPACE/
 
       - name: Publish Web Release
