@@ -1,16 +1,20 @@
 name: Build Windows & Web
 
 on:
-  workflow_dispatch: # 手动触发
-  workflow_call:     # 被其他流程调用
+  workflow_dispatch: # 允许手动点按钮
+  workflow_call:     # 允许被调用
+
+# =========================================================
+# 关键设置：赋予 GITHUB_TOKEN 写权限，否则无法发布 Release
+# =========================================================
+permissions:
+  contents: write
 
 env:
-  # === 核心配置 (直接写死，避免解析错误) ===
+  # === 核心变量 (全部写死，防止空值报错) ===
   FLUTTER_VERSION: "3.24.5"
   VERSION: "1.4.4"
-  # 这里直接写死为 nightly，避免 input 解析为空报错
-  TAG_NAME: "nightly"
-  # 这里直接写死为 true
+  TAG_NAME: "nightly"  # 固定发布到 nightly 标签
   UPLOAD_ARTIFACT: "true"
   
   # === 依赖库版本 ===
@@ -21,11 +25,11 @@ env:
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
-  # 1. 生成桥接代码
+  # Job 1: 桥接代码
   generate-bridge:
     uses: ./.github/workflows/bridge.yml
 
-  # 2. Windows 辅助插件
+  # Job 2: Windows 依赖
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
@@ -37,40 +41,26 @@ jobs:
     strategy:
       fail-fast: false
 
-  # 3. 编译 Windows (EXE + MSI)
+  # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        job:
-          - {
-              target: x86_64-pc-windows-msvc,
-              os: windows-2022,
-              arch: x86_64,
-              vcpkg-triplet: x64-windows-static,
-            }
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Restore bridge files
-        uses: actions/download-artifact@master
+      - uses: actions/download-artifact@master
         with:
           name: bridge-artifact
           path: ./
 
-      - name: Install LLVM
-        uses: KyleMayes/install-llvm-action@v1
+      - uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Install flutter
-        uses: subosito/flutter-action@v2.12.0
+      - uses: subosito/flutter-action@v2.12.0
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -90,29 +80,26 @@ jobs:
           cd $(dirname $(dirname $(which flutter)))
           [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@v1
+      - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.SCITER_RUST_VERSION }}
-          targets: ${{ matrix.job.target }}
+          # 写死 target 避免 matrix 参数传递问题
+          targets: x86_64-pc-windows-msvc
           components: "rustfmt"
 
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: ${{ matrix.job.os }}
+          prefix-key: windows-2022
 
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
+      - uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
-        env:
-          VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
+      - name: Install vcpkg deps
         run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet ${{ matrix.job.vcpkg-triplet }} --x-install-root="$VCPKG_ROOT/installed"; then
+          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
             exit 1
           fi
         shell: bash
@@ -145,14 +132,12 @@ jobs:
 
       - name: Download RustDeskTempTopMostWindow
         uses: actions/download-artifact@master
-        if: env.UPLOAD_ARTIFACT == 'true'
         with:
           name: topmostwindow-artifacts
           path: "./rustdesk"
 
-      - name: Generate EXE
+      - name: Generate PROTABLE EXE
         shell: bash
-        if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
@@ -160,41 +145,35 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
+          # 简化文件名，防止参数替换错误
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
-      - name: Add MSBuild
-        uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@v2
 
       - name: Build MSI
-        if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
           python preprocess.py --arp -d ../../rustdesk
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
+          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi
 
       - name: Publish Windows
         uses: softprops/action-gh-release@v1
-        if: env.UPLOAD_ARTIFACT == 'true'
         with:
+          # 强制指定 tag_name，如果不存在会自动创建 draft
+          tag_name: nightly
           prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
           files: |
-            ./SignOutput/rustdesk-*.msi
-            ./SignOutput/rustdesk-*.exe
+            ./SignOutput/*.msi
+            ./SignOutput/*.exe
 
-  # 4. 编译 Web
+  # Job 4: 编译 Web 客户端
   build-rustdesk-web:
     name: Build Web
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-    env:
-      RELEASE_NAME: web-basic
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -203,8 +182,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y wget npm
 
-      - name: Install flutter
-        uses: subosito/flutter-action@v2.12.0
+      - uses: subosito/flutter-action@v2.12.0
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -218,36 +196,31 @@ jobs:
       - name: Build web
         shell: bash
         run: |
-          # 1. 修复结构
           cd flutter
           flutter create . --platforms web --project-name rustdesk
           
-          # 2. 下载资源
           cd web
           echo "Downloading web assets..."
           wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
           tar xzf web_deps.tar.gz || echo "Extract warning"
           cd ..
           
-          # 3. 编译
           echo "Building..."
           flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
 
-          # 4. 打包
           cd build
           echo "RustDesk Web Client" > web/README.md
           
           PKG_NAME="rustdesk-${{ env.VERSION }}-web-basic"
-          
           mv web "$PKG_NAME"
           tar czf "$PKG_NAME.tar.gz" "$PKG_NAME"
           mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
 
       - name: Publish Web
-        if: env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@v1
         with:
+          # 强制指定 tag_name
+          tag_name: nightly
           prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
           files: |
             *.tar.gz
