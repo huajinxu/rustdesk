@@ -53,7 +53,6 @@ class _TabInfo {
 enum SettingsTabKey {
   general,
   safety,
-  network,
   display,
   plugin,
   account,
