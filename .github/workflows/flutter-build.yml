@@ -12,7 +12,7 @@ on:
         default: "nightly"
 
 env:
-  # 版本配置
+  # 基础配置 (已移除所有空值)
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
@@ -20,8 +20,6 @@ env:
   VERSION: "1.4.4"
   TAG_NAME: "${{ inputs.upload-tag }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
-  
-  # 依赖配置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
@@ -69,7 +67,7 @@ jobs:
           name: bridge-artifact
           path: ./
 
-      - name: Install LLVM and Clang
+      - name: Install LLVM
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
@@ -113,7 +111,7 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg deps
+      - name: Install vcpkg dependencies
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
@@ -189,14 +187,12 @@ jobs:
             ./SignOutput/rustdesk-*.msi
             ./SignOutput/rustdesk-*.exe
 
-  # 4. 编译 Web
+  # 4. 编译 Web (已修复 Shell 错误)
   build-rustdesk-web:
     name: Build Web
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-    env:
-      RELEASE_NAME: web-basic
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -223,36 +219,30 @@ jobs:
       - name: Build web
         shell: bash
         run: |
-          # 1. 修复 Web 工程结构
+          # 1. 修复结构
           cd flutter
           flutter create . --platforms web --project-name rustdesk
           
-          # 2. 下载 Web 资源
+          # 2. 下载资源
           cd web
           echo "Downloading web assets..."
           wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
-          tar xzf web_deps.tar.gz || echo "Extract warning, checking next steps"
+          tar xzf web_deps.tar.gz || echo "Extract warning"
           cd ..
           
-          # 3. 编译 Web
+          # 3. 编译 (修正图标丢失问题)
           echo "Building..."
-          # 加上 --no-tree-shake-icons 防止有些图标显示异常
           flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
 
-          # 4. 打包产物
+          # 4. 打包 (修正 Shell 语法错误)
           cd build
-          
-          # 创建 README (防止没有文件导致报错)
           echo "RustDesk Web Client" > web/README.md
           
-          # 定义包名变量
-          PKG_NAME="rustdesk-${{ env.VERSION }}-${{ env.RELEASE_NAME }}"
+          # 使用简单的变量名
+          PKG_NAME="rustdesk-${{ env.VERSION }}-web-basic"
           
-          # 移动并压缩
           mv web "$PKG_NAME"
           tar czf "$PKG_NAME.tar.gz" "$PKG_NAME"
-          
-          # 移动到上传目录
           mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
 
       - name: Publish Web
