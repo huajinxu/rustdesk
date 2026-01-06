@@ -2023,17 +2023,31 @@ jobs:
       - name: Build web
         shell: bash
         run: |
-          pushd flutter/web/js
-          npm install yarn -g
-          npm install typescript -g
-          npm install protoc -g
-          # Install protoc first, see: https://google.github.io/proto-lens/installing-protoc.html
-          npm install ts-proto
-          # Only works with vite <= 2.8, see: https://github.com/vitejs/vite/blob/main/docs/guide/build.md#chunking-strategy
-          npm install vite@2.8
-          yarn install && yarn build
+          # 1. 下载 Web 依赖资源 (必须保留)
+          pushd flutter/web
+          wget https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
+          tar xzf web_deps.tar.gz
           popd
-
+          
+          # 2. 开始构建 Flutter Web
+          pushd flutter
+          # 建议加上 canvaskit 渲染器以获得更好性能
+          flutter build web --release --web-renderer canvaskit
+          
+          # 3. 打包产物
+          cd build
+          # 防止 README 拷贝报错，加个判断
+          if [ -f "../web/README.md" ]; then
+            cp ../web/README.md web
+          fi
+          
+          echo -e "\n\nThis build is for preview." >> web/README.md
+          
+          dir_name="rustdesk-${{ env.VERSION }}-${{ env.RELEASE_NAME }}"
+          mv web "${dir_name}" && tar czf "${dir_name}".tar.gz "${dir_name}"
+          sha256sum "${dir_name}".tar.gz
+          popd
+          
           pushd flutter/web
           wget https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
           tar xzf web_deps.tar.gz
