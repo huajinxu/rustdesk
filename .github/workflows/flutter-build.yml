@@ -220,7 +220,7 @@ jobs:
           cd $(dirname $(dirname $(which flutter)))
           [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
 
-     - name: Build web
+      - name: Build web
         shell: bash
         run: |
           # 1. 修复 Web 工程结构
@@ -254,3 +254,12 @@ jobs:
           
           # 移动到上传目录
           mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
+
+      - name: Publish Web
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            *.tar.gz
