@@ -1,25 +1,22 @@
 name: Build Windows & Web
 
 on:
-  workflow_dispatch:
-  workflow_call:
-    inputs:
-      upload-artifact:
-        type: boolean
-        default: true
-      upload-tag:
-        type: string
-        default: "nightly"
+  workflow_dispatch: # 手动触发
+  workflow_call:     # 被其他流程调用
 
 env:
-  # 基础配置 (已移除所有空值)
+  # === 核心配置 (直接写死，避免解析错误) ===
+  FLUTTER_VERSION: "3.24.5"
+  VERSION: "1.4.4"
+  # 这里直接写死为 nightly，避免 input 解析为空报错
+  TAG_NAME: "nightly"
+  # 这里直接写死为 true
+  UPLOAD_ARTIFACT: "true"
+  
+  # === 依赖库版本 ===
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
-  FLUTTER_VERSION: "3.24.5"
-  VERSION: "1.4.4"
-  TAG_NAME: "${{ inputs.upload-tag }}"
-  UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
@@ -32,7 +29,7 @@ jobs:
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
-      upload-artifact: ${{ inputs.upload-artifact }}
+      upload-artifact: true
       target: windows-2022
       configuration: Release
       platform: x64
@@ -148,7 +145,7 @@ jobs:
 
       - name: Download RustDeskTempTopMostWindow
         uses: actions/download-artifact@master
-        if: ${{ inputs.upload-artifact }}
+        if: env.UPLOAD_ARTIFACT == 'true'
         with:
           name: topmostwindow-artifacts
           path: "./rustdesk"
@@ -187,12 +184,14 @@ jobs:
             ./SignOutput/rustdesk-*.msi
             ./SignOutput/rustdesk-*.exe
 
-  # 4. 编译 Web (已修复 Shell 错误)
+  # 4. 编译 Web
   build-rustdesk-web:
     name: Build Web
     runs-on: ubuntu-22.04
     permissions:
       contents: read
+    env:
+      RELEASE_NAME: web-basic
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -230,15 +229,14 @@ jobs:
           tar xzf web_deps.tar.gz || echo "Extract warning"
           cd ..
           
-          # 3. 编译 (修正图标丢失问题)
+          # 3. 编译
           echo "Building..."
           flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
 
-          # 4. 打包 (修正 Shell 语法错误)
+          # 4. 打包
           cd build
           echo "RustDesk Web Client" > web/README.md
           
-          # 使用简单的变量名
           PKG_NAME="rustdesk-${{ env.VERSION }}-web-basic"
           
           mv web "$PKG_NAME"
