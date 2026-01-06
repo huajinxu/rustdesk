@@ -220,23 +220,37 @@ jobs:
           cd $(dirname $(dirname $(which flutter)))
           [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
 
-      - name: Build web
+     - name: Build web
         shell: bash
         run: |
+          # 1. 修复 Web 工程结构
           cd flutter
           flutter create . --platforms web --project-name rustdesk
           
+          # 2. 下载 Web 资源
           cd web
           echo "Downloading web assets..."
           wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
-          tar xzf web_deps.tar.gz || echo "Extract failed or empty, ignoring"
-          
+          tar xzf web_deps.tar.gz || echo "Extract warning, checking next steps"
           cd ..
+          
+          # 3. 编译 Web
           echo "Building..."
-          flutter build web --release --web-renderer canvaskit
+          # 加上 --no-tree-shake-icons 防止有些图标显示异常
+          flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
 
+          # 4. 打包产物
           cd build
-          echo "RustDesk Web" > web/README.md
-          dir_name="rustdesk-${{ env.VERSION }}-${{ env.RELEASE_NAME }}"
-          mv web "${dir_name}"
-          tar czf "${dir
+          
+          # 创建 README (防止没有文件导致报错)
+          echo "RustDesk Web Client" > web/README.md
+          
+          # 定义包名变量
+          PKG_NAME="rustdesk-${{ env.VERSION }}-${{ env.RELEASE_NAME }}"
+          
+          # 移动并压缩
+          mv web "$PKG_NAME"
+          tar czf "$PKG_NAME.tar.gz" "$PKG_NAME"
+          
+          # 移动到上传目录
+          mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
