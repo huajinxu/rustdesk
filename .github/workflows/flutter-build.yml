@@ -1,6 +1,7 @@
 name: Build Windows MSI & Web Client
+
 on:
-  workflow_dispatch: # 添加手游动触发方便测试
+  workflow_dispatch: # 允许手动点击按钮触发
   workflow_call:
     inputs:
       upload-artifact:
@@ -11,7 +12,7 @@ on:
         default: "nightly"
 
 env:
-  # 基础版本配置
+  # --- 基础配置 ---
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
@@ -19,20 +20,20 @@ env:
   TAG_NAME: "${{ inputs.upload-tag }}"
   VERSION: "1.4.4"
   
-  # vcpkg 配置
+  # --- 依赖缓存相关 ---
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   
-  # 编译开关
+  # --- 开关 ---
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
-  
+  # 注意：已彻底移除 SIGN_BASE_URL 以避免报错
 
 jobs:
-  # [Job 1] 生成桥接代码 (必需的前置步骤)
+  # [Job 1] 生成桥接代码 (Windows 依赖此步骤)
   generate-bridge:
     uses: ./.github/workflows/bridge.yml
 
-  # [Job 2] Windows 辅助插件 (必需的前置步骤)
+  # [Job 2] 编译 Windows 辅助插件 (Windows 依赖此步骤)
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
@@ -44,9 +45,9 @@ jobs:
     strategy:
       fail-fast: false
 
-  # [Job 3] 编译 Windows 客户端 (含 MSI)
+  # [Job 3] 编译 Windows 客户端 (EXE + MSI)
   build-for-windows-flutter:
-    name: Windows x86_64 Build
+    name: Build Windows x86_64
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: windows-2022
     strategy:
@@ -64,7 +65,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          
+
       - name: Restore bridge files
         uses: actions/download-artifact@master
         with:
@@ -134,7 +135,7 @@ jobs:
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
           mv -Force .\usbmmidd_v2 ./rustdesk
-          # Driver logic (Optional, kept to avoid errors)
+          # Driver logic (Optional)
           try {
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
@@ -158,8 +159,7 @@ jobs:
         with:
           name: topmostwindow-artifacts
           path: "./rustdesk"
-      
-      # 生成 EXE 和 MSI
+
       - name: Build self-extracted executable
         shell: bash
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -175,7 +175,7 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build msi
+      - name: Build MSI
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
@@ -184,7 +184,7 @@ jobs:
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
 
-      - name: Publish Release (Windows)
+      - name: Publish Windows Release
         uses: softprops/action-gh-release@v1
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
@@ -194,7 +194,7 @@ jobs:
             ./SignOutput/rustdesk-*.msi
             ./SignOutput/rustdesk-*.exe
 
-  # [Job 4] 编译 Web 客户端 (已修复路径错误)
+  # [Job 4] 编译 Web 客户端
   build-rustdesk-web:
     name: Build Web Client
     runs-on: ubuntu-22.04
@@ -230,17 +230,18 @@ jobs:
         run: |
           # --- 1. 修复 Web 工程结构 ---
           cd flutter
-          
           # 关键修改：指定项目名为 rustdesk，避免使用默认的目录名 'flutter' 导致报错
           flutter create . --platforms web --project-name rustdesk
           
           # --- 2. 下载并覆盖 RustDesk 专用资源 ---
           cd web
           echo "Downloading web assets..."
-          # ... (后续代码保持不变) ...
+          
+          # 下载资源包 (这里面主要包含 canvaskit.js 和一些图标配置)
           wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
           tar xzf web_deps.tar.gz || echo "Extract failed or empty, ignoring"
           
+          # 回到 flutter 根目录
           cd ..
 
           # --- 3. 编译 ---
@@ -249,10 +250,19 @@ jobs:
 
           # --- 4. 打包 ---
           cd build
+          
+          # 创建一个 README
           echo "RustDesk Web Client" > web/README.md
+          
           dir_name="rustdesk-${{ env.VERSION }}-${{ env.RELEASE_NAME }}"
+          
+          # 移动 web 文件夹为指定名字
           mv web "${dir_name}"
+          
+          # 压缩
           tar czf "${dir_name}".tar.gz "${dir_name}"
+          
+          # 移动到工作空间根目录方便上传
           mv "${dir_name}".tar.gz $GITHUB_WORKSPACE/
 
       - name: Publish Web Release
