@@ -100,8 +100,8 @@ jobs:
       - name: Install vcpkg dependencies
         shell: bash
         run: |
-          # 直接硬编码参数 x64-windows-static，彻底解决变量变空的问题
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet=x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+          # 添加 --classic 参数，强制忽略 vcpkg.json，按照经典模式安装指定包
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet=x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --classic
 
       - name: Build rustdesk
         run: |
