@@ -97,14 +97,12 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
-        shell: bash
+      - name: Install vcpkg deps
         run: |
-          echo "Installing dependencies..."
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom vpl ffmpeg \
-            --triplet=x64-windows-static \
-            --x-install-root="$VCPKG_ROOT/installed" \
-            --classic
+          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
+            exit 1
+          fi
+        shell: bash
 
       - name: Build rustdesk
         run: |
