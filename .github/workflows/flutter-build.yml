@@ -97,9 +97,13 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg deps
+      - name: Install vcpkg dependencies
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
+          # 显式安装 FFmpeg 及相关依赖库，解决 avcodec.h 找不到的问题
+          if ! $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet ${{ matrix.job.vcpkg-triplet }} --x-install-root="$VCPKG_ROOT/installed"; then
+            echo "vcpkg install failed"
             exit 1
           fi
         shell: bash
