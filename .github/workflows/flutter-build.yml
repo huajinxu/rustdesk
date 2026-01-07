@@ -101,8 +101,7 @@ jobs:
         shell: bash
         run: |
           echo "Installing dependencies..."
-          $VCPKG_ROOT/vcpkg install \
-            libvpx libyuv opus aom ffmpeg libmfx \
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom vpl ffmpeg \
             --triplet=x64-windows-static \
             --x-install-root="$VCPKG_ROOT/installed" \
             --classic
