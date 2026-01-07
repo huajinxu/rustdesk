@@ -101,11 +101,8 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
-          # 显式安装 FFmpeg 及相关依赖库，解决 avcodec.h 找不到的问题
-          if ! $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet ${{ matrix.job.vcpkg-triplet }} --x-install-root="$VCPKG_ROOT/installed"; then
-            echo "vcpkg install failed"
-            exit 1
-          fi
+          # 修复方法：使用 --param=value 的格式，强制安装 ffmpeg 等依赖
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet=${{ matrix.job.vcpkg-triplet }} --x-install-root="$VCPKG_ROOT/installed"
         shell: bash
 
       - name: Build rustdesk
