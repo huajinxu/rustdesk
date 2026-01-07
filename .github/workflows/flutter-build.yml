@@ -99,14 +99,9 @@ jobs:
 
       - name: Install vcpkg dependencies
         shell: bash
-        # 1. 将矩阵变量先赋值给环境变量，避免 Bash 解析错误
-        env:
-          TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
-          echo "Installing dependencies for triplet: $TRIPLET"
-          
-          # 2. 使用环境变量 $TRIPLET，而不是直接插值
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet=$TRIPLET --x-install-root="$VCPKG_ROOT/installed"
+          # 直接硬编码参数 x64-windows-static，彻底解决变量变空的问题
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet=x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
       - name: Build rustdesk
         run: |
