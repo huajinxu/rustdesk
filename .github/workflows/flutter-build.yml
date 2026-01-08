@@ -93,7 +93,8 @@ jobs:
 
       - uses: lukka/run-vcpkg@v11
         with:
-          vcpkgDirectory: C:\vcpkg
+          # 修改这里：不要用 C:\vcpkg，改用工作目录下的 vcpkg
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
