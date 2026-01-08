@@ -95,16 +95,16 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg deps
+      - name: Install vcpkg dependencies
         shell: bash
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static
         run: |
-          # 安装所需的依赖，包括 FFmpeg
-          $VCPKG_ROOT/vcpkg install \
-            ffmpeg[core,x264,vpx,opus]:x64-windows-static \
-            libyuv:x64-windows-static \
-            opus:x64-windows-static \
-            aom:x64-windows-static \
-            --x-install-root="$VCPKG_ROOT/installed"
+          # 使用 manifest 模式安装依赖
+          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static; then
+            echo "vcpkg install failed"
+            exit 1
+          fi
 
       - name: Build rustdesk
         shell: bash
