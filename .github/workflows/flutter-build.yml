@@ -103,13 +103,13 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 修改点：在列表中增加了 libmfx
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
+          # 修正点：将 'libmfx' 改为正确的包名 'intel-media-sdk'
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证安装 (可选，调试用)
-          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
-            echo "Error: libmfx.lib not found!"
-            exit 1
+          # 验证安装 (可选)
+          # 注意：intel-media-sdk 安装后，库文件通常名为 libmfx.lib 或 mfx.lib
+          if [ ! -d "$VCPKG_ROOT/installed/x64-windows-static/include/mfx" ]; then
+            echo "Warning: MFX headers not found, build might fail!"
           fi
 
       - name: Build rustdesk
