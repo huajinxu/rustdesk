@@ -105,6 +105,13 @@ jobs:
             echo "vcpkg install failed"
             exit 1
           fi
+          
+          # 检查是否有 FFmpeg 头文件
+          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/include/libavutil/pixfmt.h" ]; then
+            echo "FFmpeg headers not found, installing manually..."
+            cd $VCPKG_ROOT
+            ./vcpkg install ffmpeg:x64-windows-static --recurse || true
+          fi
 
       - name: Build rustdesk
         shell: bash
@@ -112,7 +119,8 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
         run: |
           python3 res/inline-sciter.py
-          cargo build --features inline,flutter,vram --release --bins
+          # 移除 vram 特性以避免硬件编解码依赖
+          cargo build --features inline,flutter --release --bins
 
       - name: Build rustdesk portable packer
         shell: bash
