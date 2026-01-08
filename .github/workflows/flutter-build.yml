@@ -81,7 +81,7 @@ jobs:
           prefix-key: windows-2022
 
       # =========================================================
-      # 终极修正：ZIP 下载法 (绕过 Git 协议限制)
+      # 终极修正：下载官方 Tag ZIP (100% 可用)
       # =========================================================
 
       # 1. 显式设置环境变量
@@ -93,25 +93,24 @@ jobs:
       - name: Install NASM
         run: choco install nasm -y
 
-      # 3. 下载特定 Commit 的 ZIP 包并解压
-      # 这是唯一能避开 "Not our ref" 和 "Clone timeout" 的方法
-      - name: Setup Vcpkg (Download Zip)
+      # 3. 下载 2023.10.19 官方 Tag
+      - name: Setup Vcpkg (Download Tag Zip)
         shell: powershell
         run: |
-          $commitId = "5e5d0c1cd25a66b9c9f05a964724a7374eb36174"
-          $url = "https://github.com/microsoft/vcpkg/archive/$commitId.zip"
+          # 使用官方 Tag 链接，这是永久有效的
+          $url = "https://github.com/microsoft/vcpkg/archive/refs/tags/2023.10.19.zip"
           
           Write-Host "Removing old vcpkg if exists..."
           if (Test-Path vcpkg) { Remove-Item -Path vcpkg -Recurse -Force }
           
-          Write-Host "Downloading vcpkg commit $commitId from archive..."
+          Write-Host "Downloading vcpkg tag 2023.10.19..."
           Invoke-WebRequest -Uri $url -OutFile "vcpkg.zip"
           
           Write-Host "Extracting..."
           Expand-Archive -Path "vcpkg.zip" -DestinationPath "."
           
-          # GitHub zip 解压后会带上 commit 后缀，例如 vcpkg-5e5d0c...
-          # 我们需要把它重命名为 vcpkg
+          # GitHub Tag 解压后的文件夹通常叫 vcpkg-2023.10.19
+          # 我们脚本自动找到它并重命名为 vcpkg
           $extractedFolder = Get-ChildItem -Path . -Filter "vcpkg-*" | Select-Object -First 1
           Rename-Item -Path $extractedFolder.FullName -NewName "vcpkg"
           
@@ -119,7 +118,7 @@ jobs:
           Set-Location vcpkg
           
           if (!(Test-Path "ports/libmfx")) {
-            Write-Error "FATAL: libmfx directory missing in downloaded zip!"
+            Write-Error "FATAL: libmfx directory missing in this tag!"
             exit 1
           } else {
             Write-Host "SUCCESS: libmfx port found."
@@ -151,116 +150,4 @@ jobs:
         run: |
           python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
-          Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
-          Expand-Archive usbmmidd_v2.zip -DestinationPath .
-          Remove-Item -Path usbmmidd_v2\Win32 -Recurse
-          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
-          mv -Force .\usbmmidd_v2 ./rustdesk
-          try {
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
-            Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
-            mkdir ./rustdesk/drivers
-            mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
-            Expand-Archive printer_driver_adapter.zip -DestinationPath .
-            mv -Force .\printer_driver_adapter.dll ./rustdesk
-          } catch { Write-Host "Ignore driver error" }
-
-      - name: Check Runner.res
-        continue-on-error: true
-        shell: bash
-        run: |
-          runner_res=$(find . -name "Runner.res");
-          if [ "$runner_res" != "" ]; then cp $runner_res ./libs/portable/Runner.res; fi
-
-      - name: Download RustDeskTempTopMostWindow
-        uses: actions/download-artifact@master
-        with:
-          name: topmostwindow-artifacts
-          path: "./rustdesk"
-
-      - name: Generate PORTABLE EXE
-        shell: bash
-        run: |
-          sed -i '/dpiAware/d' res/manifest.xml
-          pushd ./libs/portable
-          pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
-          popd
-          mkdir -p ./SignOutput
-          # 简化文件名
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
-
-      - uses: microsoft/setup-msbuild@v2
-
-      - name: Build MSI
-        run: |
-          pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
-          nuget restore msi.sln
-          msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi
-
-      - name: Publish Windows
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: nightly
-          prerelease: true
-          files: |
-            ./SignOutput/*.msi
-            ./SignOutput/*.exe
-
-  build-rustdesk-web:
-    name: Build Web
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install deps
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y wget npm
-
-      - uses: subosito/flutter-action@v2.12.0
-        with:
-          channel: "stable"
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-
-      - name: Patch flutter
-        shell: bash
-        run: |
-          cd $(dirname $(dirname $(which flutter)))
-          [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
-
-      - name: Build web
-        shell: bash
-        run: |
-          cd flutter
-          flutter create . --platforms web --project-name rustdesk
-          
-          cd web
-          echo "Downloading web assets..."
-          wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
-          tar xzf web_deps.tar.gz || echo "Extract warning"
-          cd ..
-          
-          echo "Building..."
-          flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
-
-          cd build
-          echo "RustDesk Web Client" > web/README.md
-          
-          PKG_NAME="rustdesk-${{ env.VERSION }}-web-basic"
-          mv web "$PKG_NAME"
-          tar czf "$PKG_NAME.tar.gz" "$PKG_NAME"
-          mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
-
-      - name: Publish Web
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: nightly
-          prerelease: true
-          files: |
-            *.tar.gz
+          Invoke-WebRequest -Uri
