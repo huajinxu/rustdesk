@@ -81,7 +81,7 @@ jobs:
           prefix-key: windows-2022
 
       # =========================================================
-      # 终极修正：手术刀式拉取 2023.10 版本
+      # 终极修正：ZIP 下载法 (绕过 Git 协议限制)
       # =========================================================
 
       # 1. 显式设置环境变量
@@ -93,41 +93,45 @@ jobs:
       - name: Install NASM
         run: choco install nasm -y
 
-      # 3. 初始化并拉取特定 Commit (避免 Clone 整个历史导致的文件损坏)
-      - name: Setup Vcpkg (Atomic Fetch)
-        shell: bash
+      # 3. 下载特定 Commit 的 ZIP 包并解压
+      # 这是唯一能避开 "Not our ref" 和 "Clone timeout" 的方法
+      - name: Setup Vcpkg (Download Zip)
+        shell: powershell
         run: |
-          rm -rf vcpkg
-          mkdir vcpkg
-          cd vcpkg
+          $commitId = "5e5d0c1cd25a66b9c9f05a964724a7374eb36174"
+          $url = "https://github.com/microsoft/vcpkg/archive/$commitId.zip"
           
-          echo "Initializing empty git repo..."
-          git init
-          git remote add origin https://github.com/microsoft/vcpkg.git
+          Write-Host "Removing old vcpkg if exists..."
+          if (Test-Path vcpkg) { Remove-Item -Path vcpkg -Recurse -Force }
           
-          echo "Fetching specific commit 5e5d0c1..."
-          # 关键魔法：只下载这一个 Commit，不下载其他历史，极其稳定且快速
-          git fetch origin 5e5d0c1cd25a66b9c9f05a964724a7374eb36174 --depth=1
+          Write-Host "Downloading vcpkg commit $commitId from archive..."
+          Invoke-WebRequest -Uri $url -OutFile "vcpkg.zip"
           
-          echo "Checking out FETCH_HEAD..."
-          git checkout FETCH_HEAD
+          Write-Host "Extracting..."
+          Expand-Archive -Path "vcpkg.zip" -DestinationPath "."
           
-          # 检查 libmfx 是否存在
-          if [ ! -d "ports/libmfx" ]; then
-            echo "FATAL ERROR: libmfx directory missing!"
+          # GitHub zip 解压后会带上 commit 后缀，例如 vcpkg-5e5d0c...
+          # 我们需要把它重命名为 vcpkg
+          $extractedFolder = Get-ChildItem -Path . -Filter "vcpkg-*" | Select-Object -First 1
+          Rename-Item -Path $extractedFolder.FullName -NewName "vcpkg"
+          
+          # 进入目录检查
+          Set-Location vcpkg
+          
+          if (!(Test-Path "ports/libmfx")) {
+            Write-Error "FATAL: libmfx directory missing in downloaded zip!"
             exit 1
-          else
-            echo "SUCCESS: libmfx port found."
-          fi
+          } else {
+            Write-Host "SUCCESS: libmfx port found."
+          }
           
-          echo "Bootstrapping..."
-          ./bootstrap-vcpkg.bat
+          Write-Host "Bootstrapping..."
+          .\bootstrap-vcpkg.bat
 
       # 4. 安装依赖 (使用 libmfx)
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 关键：删除 vcpkg.json 防止干扰 classic 模式
           rm -f vcpkg.json
           
           # 安装 (包名使用 libmfx)
