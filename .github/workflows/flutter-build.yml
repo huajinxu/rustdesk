@@ -91,11 +91,38 @@ jobs:
         with:
           prefix-key: windows-2022
 
-      - uses: lukka/run-vcpkg@v11
+     # 1. 显式设置环境变量，让后面的步骤都知道 vcpkg 在哪里
+      - name: Set VCPKG_ROOT
+        run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
+        shell: bash
+
+      # 2. 手动下载 vcpkg 源码 (指定 2024 年的 Commit ID)
+      - name: Checkout vcpkg
+        uses: actions/checkout@v4
         with:
-          vcpkgDirectory: ${{ github.workspace }}/../vcpkg
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          doNotCache: false
+          repository: microsoft/vcpkg
+          ref: ${{ env.VCPKG_COMMIT_ID }}
+          path: vcpkg  # 下载到当前工作区的 vcpkg 目录中
+
+      # 3. 初始化 vcpkg (运行 bootstrap)
+      - name: Bootstrap vcpkg
+        shell: cmd
+        run: |
+          cd vcpkg
+          bootstrap-vcpkg.bat
+
+      # 4. 安装依赖 (这一步是你原有的，稍微改一下路径引用即可)
+      - name: Install vcpkg deps
+        shell: bash
+        run: |
+          # 注意：这里直接引用刚才下载的 vcpkg
+          ./vcpkg/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --recurse --classic
+          
+          # 验证
+          if [ ! -f "./vcpkg/installed/x64-windows-static/lib/libmfx.lib" ]; then
+             echo "Error: libmfx.lib not found!"
+             exit 1
+          fi
 
       - name: Install NASM (Required for FFmpeg)
         run: choco install nasm -y
