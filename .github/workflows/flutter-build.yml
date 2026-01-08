@@ -17,7 +17,6 @@ env:
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
-  # VCPKG 缓存相关设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
@@ -108,19 +107,18 @@ jobs:
         with:
           prefix-key: windows-2022
 
-      # 设置 VCPKG 环境
       - uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      # === 3. 关键修复：显式安装 FFmpeg 和其他依赖 ===
-      # 如果不指定包名，vcpkg 不会安装任何东西，导致找不到 pixfmt.h
+      # === 3. 关键修复：添加 --classic 参数 ===
+      # --classic 强制忽略 vcpkg.json，允许我们在命令行手动指定 ffmpeg 等包
       - name: Install vcpkg deps
         shell: bash
         run: |
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+          $VCPKG_ROOT/vcpkg install --classic libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
       - name: Build rustdesk
         shell: pwsh
@@ -183,8 +181,8 @@ jobs:
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
-      # MSI 构建
       - uses: microsoft/setup-msbuild@v2
+
       - name: Build MSI
         shell: pwsh
         run: |
