@@ -17,6 +17,7 @@ env:
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
+  # VCPKG 缓存相关设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
@@ -37,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
 
-  # Job 3: 编译 Windows EXE/MSI (修复了 cl.exe 错误)
+  # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
@@ -52,9 +53,10 @@ jobs:
           name: bridge-artifact
           path: ./
 
-      # === 关键修复: 安装 NASM 和 MSVC 环境 ===
+      # === 1. 安装 NASM (FFmpeg 和 hwcodec 编译必须) ===
       - uses: ilammy/setup-nasm@v1
 
+      # === 2. 激活 MSVC 环境 (解决 C++ 找不到标准库头文件的问题) ===
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -106,24 +108,25 @@ jobs:
         with:
           prefix-key: windows-2022
 
+      # 设置 VCPKG 环境
       - uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      # === 3. 关键修复：显式安装 FFmpeg 和其他依赖 ===
+      # 如果不指定包名，vcpkg 不会安装任何东西，导致找不到 pixfmt.h
       - name: Install vcpkg deps
         shell: bash
         run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
-            echo "vcpkg install failed"
-            exit 1
-          fi
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
       - name: Build rustdesk
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          # 确保 cargo 能找到 vcpkg 安装的库
           $env:VCPKG_ROOT = "C:\vcpkg"
           
           # 运行构建
@@ -180,8 +183,8 @@ jobs:
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
+      # MSI 构建
       - uses: microsoft/setup-msbuild@v2
-
       - name: Build MSI
         shell: pwsh
         run: |
