@@ -23,7 +23,7 @@ env:
   LLVM_VERSION: "15.0.6"
   # VCPKG设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  VCPKG_COMMIT_ID: "81c0029b3529369d120a104085600c7104a3e20e"
 
 jobs:
   # Job 1: 桥接代码
@@ -96,24 +96,29 @@ jobs:
       # 关键修正区域：VCPKG 环境配置
       # =========================================================
       
-      # 1. 显式设置 VCPKG_ROOT 环境变量，供后续步骤使用
+      # =========================================================
+      # 终极修正：VCPKG 环境配置
+      # =========================================================
+      
+      # 1. 显式设置 VCPKG_ROOT 环境变量
       - name: Set VCPKG_ROOT
         run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
         shell: bash
 
-      # 2. 安装 NASM (编译 FFmpeg 必须)
+      # 2. 安装 NASM
       - name: Install NASM
         run: choco install nasm -y
 
-      # 3. 下载 vcpkg (不指定 ref，下载完整历史，避免 not our ref 错误)
+      # 3. 下载 vcpkg (不指定 ref，下载完整历史)
+      # 必须 fetch-depth: 0，否则无法在下一步切换到指定 commit
       - name: Checkout vcpkg
         uses: actions/checkout@v4
         with:
           repository: microsoft/vcpkg
           path: vcpkg
-          fetch-depth: 0  # 关键：下载所有历史记录以便切换 Commit
+          fetch-depth: 0  
 
-      # 4. 手动切换到指定 Commit 并初始化
+      # 4. 手动切换到 2024年的 Commit 并初始化
       - name: Bootstrap vcpkg
         shell: cmd
         run: |
@@ -124,16 +129,15 @@ jobs:
           echo "Bootstrapping vcpkg..."
           bootstrap-vcpkg.bat
 
-      # 5. 安装依赖 (使用 libmfx, --classic 模式)
+      # 5. 安装依赖 (使用 2024年正确的包名: libmfx)
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 黄金组合：
-          # Commit ID: 120deac... (2023年版)
-          # 包名: libmfx (注意：在这个时间点它叫 libmfx，不叫 intel-media-sdk)
+          # 2024年的 vcpkg 中，intel-media-sdk 已改名为 libmfx
+          # 必须使用 --classic 绕过 manifest 模式
           $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证
+          # 验证安装结果
           if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
