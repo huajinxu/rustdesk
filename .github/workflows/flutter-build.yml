@@ -52,10 +52,10 @@ jobs:
           name: bridge-artifact
           path: ./
 
-      # === 1. 安装 NASM (FFmpeg 和 hwcodec 编译必须) ===
+      # === 1. 安装 NASM ===
       - uses: ilammy/setup-nasm@v1
 
-      # === 2. 激活 MSVC 环境 (解决 C++ 找不到标准库头文件的问题) ===
+      # === 2. 激活 MSVC 环境 ===
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -113,18 +113,18 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      # === 3. 关键修复：添加 --classic 参数 ===
-      # --classic 强制忽略 vcpkg.json，允许我们在命令行手动指定 ffmpeg 等包
+      # === 3. 关键修复：添加 libmfx ===
+      # hwcodec 需要 libmfx (Intel Media SDK) 才能编译通过
       - name: Install vcpkg deps
         shell: bash
         run: |
-          $VCPKG_ROOT/vcpkg install --classic libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+          $VCPKG_ROOT/vcpkg install --classic libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
       - name: Build rustdesk
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          # 确保 cargo 能找到 vcpkg 安装的库
+          # 确保环境变量指向 vcpkg 路径，这样 Rust 的 vcpkg crate 才能找到库文件
           $env:VCPKG_ROOT = "C:\vcpkg"
           
           # 运行构建
