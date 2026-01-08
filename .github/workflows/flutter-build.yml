@@ -23,7 +23,7 @@ env:
   LLVM_VERSION: "15.0.6"
   # VCPKG设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  VCPKG_COMMIT_ID: "81c0029b3529369d120a104085600c7104a3e20e"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
   # Job 1: 桥接代码
@@ -133,11 +133,7 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 2024年的 vcpkg 中，intel-media-sdk 已改名为 libmfx
-          # 必须使用 --classic 绕过 manifest 模式
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
-          
-          # 验证安装结果
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
