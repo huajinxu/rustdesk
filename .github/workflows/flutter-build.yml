@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
 
-  # Job 3: 编译 Windows EXE/MSI
+  # Job 3: 编译 Windows EXE/MSI (修复了 cl.exe 错误)
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
@@ -52,6 +52,13 @@ jobs:
           name: bridge-artifact
           path: ./
 
+      # === 关键修复: 安装 NASM 和 MSVC 环境 ===
+      - uses: ilammy/setup-nasm@v1
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
@@ -61,7 +68,6 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      # 修正：动态获取 Flutter 路径，不再使用硬编码的 hostedtoolcache 路径
       - name: Replace engine
         shell: pwsh
         run: |
@@ -73,7 +79,6 @@ jobs:
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
           
-          # 获取 Flutter 安装根目录
           $flutterPath = (Get-Command flutter).Source
           $flutterRoot = Split-Path (Split-Path $flutterPath -Parent) -Parent
           $engineCachePath = Join-Path $flutterRoot "bin\cache\artifacts\engine\windows-x64-release"
@@ -81,19 +86,14 @@ jobs:
           Write-Host "Overwriting Engine at: $engineCachePath"
           Copy-Item -Path "windows-x64-release\*" -Destination $engineCachePath -Recurse -Force
 
-      # 修正：增加目录检查，防止因找不到目录报错
       - name: Patch flutter
         shell: bash
         run: |
           FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
-          echo "Flutter Root: $FLUTTER_DIR"
-          
           if [[ "3.24.5" == "${{env.FLUTTER_VERSION}}" ]]; then
              cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$FLUTTER_DIR"
              cd "$FLUTTER_DIR"
              git apply flutter_3.24.4_dropdown_menu_enableFilter.diff || echo "Patch failed or already applied"
-          else
-             echo "Skipping patch: FLUTTER_VERSION is not 3.24.5"
           fi
 
       - uses: dtolnay/rust-toolchain@v1
@@ -120,23 +120,27 @@ jobs:
             exit 1
           fi
 
-      # 修正：增加 ErrorAction Stop，防止下载失败继续运行
       - name: Build rustdesk
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $env:VCPKG_ROOT = "C:\vcpkg"
+          
+          # 运行构建
           python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
           
+          # 移动构建产物
           Move-Item -Path ./flutter/build/windows/x64/runner/Release -Destination ./rustdesk -Force
           
+          # 下载 USBMMIDD
           Write-Host "Downloading usbmmidd..."
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath .
-          
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
           Move-Item -Path .\usbmmidd_v2 -Destination ./rustdesk -Force
           
+          # 下载打印机驱动
           try {
             Write-Host "Downloading Printer Drivers..."
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
