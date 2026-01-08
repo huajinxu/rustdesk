@@ -128,12 +128,12 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 关键修正：
-          # 1. 使用回退后的 vcpkg 版本
-          # 2. 包名改回 'intel-media-sdk' (旧版 vcpkg 里叫这个)
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
+          # 黄金组合：
+          # Commit ID: 120deac... (2023年版)
+          # 包名: libmfx (注意：在这个时间点它叫 libmfx，不叫 intel-media-sdk)
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证 (旧版安装后的文件夹通常是 libmfx 或 mfx)
+          # 验证
           if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
