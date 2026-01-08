@@ -94,54 +94,56 @@ jobs:
 
 
 
+      # =========================================================
+      # 终极修正：手动克隆 2023.10 版本 + libmfx
+      # =========================================================
+
       # 1. 显式设置环境变量
       - name: Set VCPKG_ROOT
         run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
         shell: bash
 
-      # 2. 安装 NASM (FFmpeg 必须)
+      # 2. 安装 NASM
       - name: Install NASM
         run: choco install nasm -y
 
-      # 3. 手动克隆、切版本、Bootstrap (三合一，确保原子性)
-      - name: Setup Vcpkg (Manual & Force)
+      # 3. 手动克隆并切换到 2023.10.19 (RustDesk 黄金版本)
+      - name: Setup Vcpkg (Manual Clone)
         shell: bash
         run: |
-          # 清理可能存在的残留
+          # 清理旧目录
           rm -rf vcpkg
           
           echo "Cloning vcpkg master..."
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
           
-          # 关键步骤：强行重置到 2023 年的 Commit ID
-          echo "Force checkout to 2023 version (120deac)..."
-          git checkout 120deac3062162151622ca4860575a33844ba10b
+          # 切换到 2023.10.19 的稳定版本 (包含 ffmpeg 6 和 libmfx)
+          echo "Checkout specific stable commit (5e5d0c1)..."
+          git checkout 5e5d0c1cd25a66b9c9f05a964724a7374eb36174
           
-          # 致命检查：如果这个文件夹不存在，说明版本没切过去，立即报错停止
-          if [ ! -d "ports/intel-media-sdk" ]; then
-            echo "FATAL ERROR: intel-media-sdk directory missing!"
-            echo "Current Commit is:"
-            git rev-parse HEAD
+          # 检查 libmfx 是否存在 (这次肯定在)
+          if [ ! -d "ports/libmfx" ]; then
+            echo "FATAL ERROR: libmfx directory missing in this commit!"
             exit 1
           else
-            echo "SUCCESS: intel-media-sdk directory found."
+            echo "SUCCESS: libmfx port found."
           fi
           
           echo "Bootstrapping..."
           ./bootstrap-vcpkg.bat
 
-      # 4. 安装依赖 (使用 intel-media-sdk)
+      # 4. 安装依赖 (使用 libmfx)
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 预防措施：删除项目根目录的 vcpkg.json，防止它干扰 vcpkg 的经典模式
+          # 删除 vcpkg.json 防止干扰
           rm -f vcpkg.json
           
-          # 使用 2023 年的包名: intel-media-sdk
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
+          # 安装 (包名使用 libmfx)
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证结果
+          # 验证
           if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
