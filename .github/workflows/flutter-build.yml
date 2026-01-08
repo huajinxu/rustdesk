@@ -97,12 +97,21 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      - name: Install NASM (Required for FFmpeg)
+        run: choco install nasm -y
+
       - name: Install vcpkg deps
+        shell: bash
         run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
+          # 显式指定安装包，确保 ffmpeg 及其头文件存在
+          # 增加 --recurse 确保依赖关系正确
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse
+          
+          # 验证安装是否成功 (调试用)
+          if [ ! -d "$VCPKG_ROOT/installed/x64-windows-static/include/libavutil" ]; then
+            echo "Error: FFmpeg headers not found!"
             exit 1
           fi
-        shell: bash
 
       - name: Build rustdesk
         run: |
