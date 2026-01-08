@@ -103,11 +103,11 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 显式指定安装包，确保 ffmpeg 及其头文件存在
-          # 增加 --recurse 确保依赖关系正确
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse
+          # 关键修改：添加了 --classic 参数
+          # 这会强制忽略 vcpkg.json 限制，允许我们手动修补安装 ffmpeg 等缺失库
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证安装是否成功 (调试用)
+          # 验证安装是否成功
           if [ ! -d "$VCPKG_ROOT/installed/x64-windows-static/include/libavutil" ]; then
             echo "Error: FFmpeg headers not found!"
             exit 1
