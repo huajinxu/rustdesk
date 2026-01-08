@@ -91,27 +91,26 @@ jobs:
         with:
           prefix-key: windows-2022
 
-     # 1. 显式设置环境变量，让后面的步骤都知道 vcpkg 在哪里
       - name: Set VCPKG_ROOT
         run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
         shell: bash
 
-      # 2. 手动下载 vcpkg 源码 (指定 2024 年的 Commit ID)
       - name: Checkout vcpkg
         uses: actions/checkout@v4
         with:
           repository: microsoft/vcpkg
-          ref: ${{ env.VCPKG_COMMIT_ID }}
-          path: vcpkg  # 下载到当前工作区的 vcpkg 目录中
+          path: vcpkg
+          fetch-depth: 0  # 关键！必须下载完整历史才能找到旧的 Commit
 
-      # 3. 初始化 vcpkg (运行 bootstrap)
       - name: Bootstrap vcpkg
         shell: cmd
         run: |
           cd vcpkg
+          echo Checking out specific commit...
+          git checkout ${{ env.VCPKG_COMMIT_ID }}
+          echo Bootstrapping...
           bootstrap-vcpkg.bat
-
-      # 4. 安装依赖 (这一步是你原有的，稍微改一下路径引用即可)
+          
       - name: Install vcpkg deps
         shell: bash
         run: |
