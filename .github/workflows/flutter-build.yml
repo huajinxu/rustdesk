@@ -8,26 +8,20 @@ permissions:
   contents: write
 
 env:
-  # === 核心变量 ===
   FLUTTER_VERSION: "3.24.5"
   VERSION: "1.4.4"
   TAG_NAME: "nightly"
   UPLOAD_ARTIFACT: "true"
-  
-  # === 依赖库版本 ===
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
-  # VCPKG设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  # 注意：具体的 Commit ID 已在 build 步骤中硬编码，此处不再需要定义
+  # 注意：VCPKG_COMMIT_ID 已在下方脚本中硬编码，此处变量仅作参考
 
 jobs:
-  # Job 1: 桥接代码
   generate-bridge:
     uses: ./.github/workflows/bridge.yml
 
-  # Job 2: Windows 依赖
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
@@ -39,7 +33,6 @@ jobs:
     strategy:
       fail-fast: false
 
-  # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
@@ -111,11 +104,11 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
           
-          # 切换到 2023.10.19 的稳定版本 (包含 ffmpeg 6 和 libmfx)
+          # 关键修改：切换到 2023.10.19 的稳定版本 Commit
           echo "Checkout specific stable commit (5e5d0c1)..."
           git checkout 5e5d0c1cd25a66b9c9f05a964724a7374eb36174
           
-          # 检查 libmfx 是否存在 (这次肯定在)
+          # 检查 libmfx 是否存在 (在这个版本里必须存在)
           if [ ! -d "ports/libmfx" ]; then
             echo "FATAL ERROR: libmfx directory missing in this commit!"
             exit 1
@@ -130,7 +123,7 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 删除 vcpkg.json 防止干扰
+          # 关键：删除 vcpkg.json 防止干扰 classic 模式
           rm -f vcpkg.json
           
           # 安装 (包名使用 libmfx)
@@ -187,7 +180,7 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           popd
           mkdir -p ./SignOutput
-          # 简化文件名，防止参数替换错误
+          # 简化文件名
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
       - uses: microsoft/setup-msbuild@v2
@@ -209,7 +202,6 @@ jobs:
             ./SignOutput/*.msi
             ./SignOutput/*.exe
 
-  # Job 4: 编译 Web 客户端
   build-rustdesk-web:
     name: Build Web
     runs-on: ubuntu-22.04
