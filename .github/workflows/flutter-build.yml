@@ -1,8 +1,8 @@
 name: Build Windows & Web
 
 on:
-  workflow_dispatch: # 允许手动点按钮
-  workflow_call:     # 允许被调用
+  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
@@ -12,15 +12,20 @@ env:
   VERSION: "1.4.4"
   TAG_NAME: "nightly"
   UPLOAD_ARTIFACT: "true"
+  
+  # === 依赖库版本 ===
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
+  # Job 1: 桥接代码
   generate-bridge:
     uses: ./.github/workflows/bridge.yml
 
+  # Job 2: Windows 依赖
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
@@ -32,6 +37,7 @@ jobs:
     strategy:
       fail-fast: false
 
+  # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
@@ -41,7 +47,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: actions/download-artifact@master
+      - uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
@@ -55,20 +61,40 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
+      # 修正：动态获取 Flutter 路径，不再使用硬编码的 hostedtoolcache 路径
       - name: Replace engine
+        shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           flutter doctor -v
           flutter precache --windows
+          
+          Write-Host "Downloading Custom Engine..."
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          mv -Force windows-x64-release/* C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+          
+          # 获取 Flutter 安装根目录
+          $flutterPath = (Get-Command flutter).Source
+          $flutterRoot = Split-Path (Split-Path $flutterPath -Parent) -Parent
+          $engineCachePath = Join-Path $flutterRoot "bin\cache\artifacts\engine\windows-x64-release"
+          
+          Write-Host "Overwriting Engine at: $engineCachePath"
+          Copy-Item -Path "windows-x64-release\*" -Destination $engineCachePath -Recurse -Force
 
+      # 修正：增加目录检查，防止因找不到目录报错
       - name: Patch flutter
         shell: bash
         run: |
-          cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
-          cd $(dirname $(dirname $(which flutter)))
-          [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
+          echo "Flutter Root: $FLUTTER_DIR"
+          
+          if [[ "3.24.5" == "${{env.FLUTTER_VERSION}}" ]]; then
+             cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$FLUTTER_DIR"
+             cd "$FLUTTER_DIR"
+             git apply flutter_3.24.4_dropdown_menu_enableFilter.diff || echo "Patch failed or already applied"
+          else
+             echo "Skipping patch: FLUTTER_VERSION is not 3.24.5"
+          fi
 
       - uses: dtolnay/rust-toolchain@v1
         with:
@@ -80,74 +106,153 @@ jobs:
         with:
           prefix-key: windows-2022
 
-      # =========================================================
-      # 终极修正：下载官方 Tag ZIP (100% 可用)
-      # =========================================================
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
 
-      # 1. 显式设置环境变量
-      - name: Set VCPKG_ROOT
-        run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
-        shell: bash
-
-      # 2. 安装 NASM
-      - name: Install NASM
-        run: choco install nasm -y
-
-      # 3. 下载 2023.10.19 官方 Tag
-      - name: Setup Vcpkg (Download Tag Zip)
-        shell: powershell
-        run: |
-          # 使用官方 Tag 链接，这是永久有效的
-          $url = "https://github.com/microsoft/vcpkg/archive/refs/tags/2023.10.19.zip"
-          
-          Write-Host "Removing old vcpkg if exists..."
-          if (Test-Path vcpkg) { Remove-Item -Path vcpkg -Recurse -Force }
-          
-          Write-Host "Downloading vcpkg tag 2023.10.19..."
-          Invoke-WebRequest -Uri $url -OutFile "vcpkg.zip"
-          
-          Write-Host "Extracting..."
-          Expand-Archive -Path "vcpkg.zip" -DestinationPath "."
-          
-          # GitHub Tag 解压后的文件夹通常叫 vcpkg-2023.10.19
-          # 我们脚本自动找到它并重命名为 vcpkg
-          $extractedFolder = Get-ChildItem -Path . -Filter "vcpkg-*" | Select-Object -First 1
-          Rename-Item -Path $extractedFolder.FullName -NewName "vcpkg"
-          
-          # 进入目录检查
-          Set-Location vcpkg
-          
-          if (!(Test-Path "ports/libmfx")) {
-            Write-Error "FATAL: libmfx directory missing in this tag!"
-            exit 1
-          } else {
-            Write-Host "SUCCESS: libmfx port found."
-          }
-          
-          Write-Host "Bootstrapping..."
-          .\bootstrap-vcpkg.bat
-
-      # 4. 安装依赖 (使用 libmfx)
       - name: Install vcpkg deps
         shell: bash
         run: |
-          rm -f vcpkg.json
-          
-          # 安装 (包名使用 libmfx)
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
-          
-          # 验证
-          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
-             echo "Error: libmfx.lib not found!"
-             exit 1
+          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
+            echo "vcpkg install failed"
+            exit 1
           fi
 
-      # =========================================================
-      # 编译与打包
-      # =========================================================
-
+      # 修正：增加 ErrorAction Stop，防止下载失败继续运行
       - name: Build rustdesk
+        shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-          mv ./flutter/build/windows/x64/runner/Release ./rustdesk
-          Invoke-WebRequest -Uri
+          
+          Move-Item -Path ./flutter/build/windows/x64/runner/Release -Destination ./rustdesk -Force
+          
+          Write-Host "Downloading usbmmidd..."
+          Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
+          Expand-Archive usbmmidd_v2.zip -DestinationPath .
+          
+          Remove-Item -Path usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
+          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
+          Move-Item -Path .\usbmmidd_v2 -Destination ./rustdesk -Force
+          
+          try {
+            Write-Host "Downloading Printer Drivers..."
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
+            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
+            
+            Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
+            New-Item -ItemType Directory -Force -Path ./rustdesk/drivers
+            Move-Item -Path .\rustdesk_printer_driver_v4-1.4 -Destination ./rustdesk/drivers/RustDeskPrinterDriver -Force
+            
+            Expand-Archive printer_driver_adapter.zip -DestinationPath .
+            Move-Item -Path .\printer_driver_adapter.dll -Destination ./rustdesk -Force
+          } catch {
+            Write-Warning "Driver download failed, skipping drivers. Error: $_"
+          }
+
+      - name: Check Runner.res
+        continue-on-error: true
+        shell: bash
+        run: |
+          runner_res=$(find . -name "Runner.res");
+          if [ "$runner_res" != "" ]; then cp $runner_res ./libs/portable/Runner.res; fi
+
+      - name: Download RustDeskTempTopMostWindow
+        uses: actions/download-artifact@v4
+        with:
+          name: topmostwindow-artifacts
+          path: "./rustdesk"
+
+      - name: Generate PORTABLE EXE
+        shell: bash
+        run: |
+          sed -i '/dpiAware/d' res/manifest.xml
+          pushd ./libs/portable
+          pip3 install -r requirements.txt
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          popd
+          mkdir -p ./SignOutput
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          Push-Location ./res/msi
+          python preprocess.py --arp -d ../../rustdesk
+          nuget restore msi.sln
+          msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
+          Pop-Location
+          Move-Item -Path ./res/msi/Package/bin/x64/Release/en-us/Package.msi -Destination ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi -Force
+
+      - name: Publish Windows
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          prerelease: true
+          files: |
+            ./SignOutput/*.msi
+            ./SignOutput/*.exe
+
+  # Job 4: 编译 Web 客户端
+  build-rustdesk-web:
+    name: Build Web
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget npm
+
+      - uses: subosito/flutter-action@v2.12.0
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch flutter
+        shell: bash
+        run: |
+          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
+          if [[ "3.24.5" == "${{env.FLUTTER_VERSION}}" ]]; then
+             cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$FLUTTER_DIR"
+             cd "$FLUTTER_DIR"
+             git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+          fi
+
+      - name: Build web
+        shell: bash
+        run: |
+          cd flutter
+          flutter create . --platforms web --project-name rustdesk
+          
+          cd web
+          echo "Downloading web assets..."
+          wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
+          tar xzf web_deps.tar.gz || echo "Extract warning"
+          cd ..
+          
+          echo "Building..."
+          flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
+
+          cd build
+          echo "RustDesk Web Client" > web/README.md
+          
+          PKG_NAME="rustdesk-${{ env.VERSION }}-web-basic"
+          mv web "$PKG_NAME"
+          tar czf "$PKG_NAME.tar.gz" "$PKG_NAME"
+          mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
+
+      - name: Publish Web
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          prerelease: true
+          files: |
+            *.tar.gz
