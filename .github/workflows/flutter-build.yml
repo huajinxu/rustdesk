@@ -30,7 +30,7 @@ jobs:
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
-      upload-artifact: true      # 注意：参数名有连字符
+      upload-artifact: true
       target: windows-2022
       configuration: Release
       platform: x64
@@ -98,10 +98,13 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
-            echo "vcpkg install failed"
-            exit 1
-          fi
+          # 安装所需的依赖，包括 FFmpeg
+          $VCPKG_ROOT/vcpkg install \
+            ffmpeg[core,x264,vpx,opus]:x64-windows-static \
+            libyuv:x64-windows-static \
+            opus:x64-windows-static \
+            aom:x64-windows-static \
+            --x-install-root="$VCPKG_ROOT/installed"
 
       - name: Build rustdesk
         shell: bash
