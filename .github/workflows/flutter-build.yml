@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 env:
-  # === 核心变量 (全部写死，防止空值报错) ===
+  # === 核心变量 ===
   FLUTTER_VERSION: "3.24.5"
   VERSION: "1.4.4"
   TAG_NAME: "nightly"  # 固定发布到 nightly 标签
@@ -21,7 +21,9 @@ env:
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
+  # VCPKG设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  # 使用 2024.04.26 的版本，包含 libmfx 和 ffmpeg 6/7 支持
   VCPKG_COMMIT_ID: "81c0029b3529369d120a104085600c7104a3e20e"
 
 jobs:
@@ -71,7 +73,7 @@ jobs:
           flutter precache --windows
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+          mv -Force windows-x64-release/* C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
 
       - name: Patch flutter
         shell: bash
@@ -91,18 +93,28 @@ jobs:
         with:
           prefix-key: windows-2022
 
+      # =========================================================
+      # 关键修正区域：VCPKG 环境配置
+      # =========================================================
+      
+      # 1. 显式设置 VCPKG_ROOT 环境变量，供后续步骤使用
       - name: Set VCPKG_ROOT
         run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
         shell: bash
 
+      # 2. 安装 NASM (编译 FFmpeg 必须)
+      - name: Install NASM
+        run: choco install nasm -y
 
+      # 3. 下载 vcpkg (不指定 ref，下载完整历史，避免 not our ref 错误)
       - name: Checkout vcpkg
         uses: actions/checkout@v4
         with:
           repository: microsoft/vcpkg
           path: vcpkg
-          fetch-depth: 0  
-          
+          fetch-depth: 0  # 关键：下载所有历史记录以便切换 Commit
+
+      # 4. 手动切换到指定 Commit 并初始化
       - name: Bootstrap vcpkg
         shell: cmd
         run: |
@@ -112,34 +124,24 @@ jobs:
           
           echo "Bootstrapping vcpkg..."
           bootstrap-vcpkg.bat
-          
+
+      # 5. 安装依赖 (使用 libmfx, --classic 模式)
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 注意：这里直接引用刚才下载的 vcpkg
-          ./vcpkg/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --recurse --classic
+          # 显式使用环境变量中的路径
+          # 安装列表包含: libvpx, libyuv, opus, aom, ffmpeg, libmfx (注意这里是 libmfx)
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证
-          if [ ! -f "./vcpkg/installed/x64-windows-static/lib/libmfx.lib" ]; then
+          # 验证安装结果
+          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
           fi
 
-      - name: Install NASM (Required for FFmpeg)
-        run: choco install nasm -y
-
-      - name: Install vcpkg deps
-        shell: bash
-        run: |
-          # 1. 升级了 commit id 后，这里必须用 libmfx
-          # 2. 依然保留 --classic 和 --recurse
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
-          
-          # 验证
-          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
-             echo "Error: libmfx.lib still not found!"
-             exit 1
-          fi
+      # =========================================================
+      # 编译与打包
+      # =========================================================
 
       - name: Build rustdesk
         run: |
@@ -173,7 +175,7 @@ jobs:
           name: topmostwindow-artifacts
           path: "./rustdesk"
 
-      - name: Generate PROTABLE EXE
+      - name: Generate PORTABLE EXE
         shell: bash
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
