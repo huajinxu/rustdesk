@@ -16,7 +16,6 @@ env:
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  # 注意：VCPKG_COMMIT_ID 已在下方脚本中硬编码，此处变量仅作参考
 
 jobs:
   generate-bridge:
@@ -82,7 +81,7 @@ jobs:
           prefix-key: windows-2022
 
       # =========================================================
-      # 终极修正：手动克隆 2023.10 版本 + libmfx
+      # 终极修正：手术刀式拉取 2023.10 版本
       # =========================================================
 
       # 1. 显式设置环境变量
@@ -94,23 +93,28 @@ jobs:
       - name: Install NASM
         run: choco install nasm -y
 
-      # 3. 手动克隆并切换到 2023.10.19 (RustDesk 黄金版本)
-      - name: Setup Vcpkg (Manual Clone)
+      # 3. 初始化并拉取特定 Commit (避免 Clone 整个历史导致的文件损坏)
+      - name: Setup Vcpkg (Atomic Fetch)
         shell: bash
         run: |
           rm -rf vcpkg
-          
-          echo "Cloning vcpkg master..."
-          git clone https://github.com/microsoft/vcpkg.git
+          mkdir vcpkg
           cd vcpkg
           
-          # 关键修改：切换到 2023.10.19 的稳定版本 Commit
-          echo "Checkout specific stable commit (5e5d0c1)..."
-          git checkout 5e5d0c1cd25a66b9c9f05a964724a7374eb36174
+          echo "Initializing empty git repo..."
+          git init
+          git remote add origin https://github.com/microsoft/vcpkg.git
           
-          # 检查 libmfx 是否存在 (在这个版本里必须存在)
+          echo "Fetching specific commit 5e5d0c1..."
+          # 关键魔法：只下载这一个 Commit，不下载其他历史，极其稳定且快速
+          git fetch origin 5e5d0c1cd25a66b9c9f05a964724a7374eb36174 --depth=1
+          
+          echo "Checking out FETCH_HEAD..."
+          git checkout FETCH_HEAD
+          
+          # 检查 libmfx 是否存在
           if [ ! -d "ports/libmfx" ]; then
-            echo "FATAL ERROR: libmfx directory missing in this commit!"
+            echo "FATAL ERROR: libmfx directory missing!"
             exit 1
           else
             echo "SUCCESS: libmfx port found."
