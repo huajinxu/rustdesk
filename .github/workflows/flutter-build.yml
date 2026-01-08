@@ -30,10 +30,11 @@ jobs:
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
-      upload-artifact: true
+      upload-artifact: true      # 注意：参数名有连字符
       target: windows-2022
-      configuration: Release  # 添加必需参数
-      platform: x64          # 添加必需参数
+      configuration: Release
+      platform: x64
+      target_version: Windows10
 
   # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
