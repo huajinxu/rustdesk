@@ -95,20 +95,22 @@ jobs:
         run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
         shell: bash
 
+
       - name: Checkout vcpkg
         uses: actions/checkout@v4
         with:
           repository: microsoft/vcpkg
           path: vcpkg
-          fetch-depth: 0  # 关键！必须下载完整历史才能找到旧的 Commit
-
+          fetch-depth: 0  
+          
       - name: Bootstrap vcpkg
         shell: cmd
         run: |
           cd vcpkg
-          echo Checking out specific commit...
+          echo "Switching to commit ${{ env.VCPKG_COMMIT_ID }}..."
           git checkout ${{ env.VCPKG_COMMIT_ID }}
-          echo Bootstrapping...
+          
+          echo "Bootstrapping vcpkg..."
           bootstrap-vcpkg.bat
           
       - name: Install vcpkg deps
