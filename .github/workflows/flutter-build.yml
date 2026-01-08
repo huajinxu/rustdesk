@@ -23,8 +23,7 @@ env:
   LLVM_VERSION: "15.0.6"
   # VCPKG设置
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  # 使用 2024.04.26 的版本，包含 libmfx 和 ffmpeg 6/7 支持
-  VCPKG_COMMIT_ID: "81c0029b3529369d120a104085600c7104a3e20e"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
   # Job 1: 桥接代码
@@ -129,11 +128,12 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 显式使用环境变量中的路径
-          # 安装列表包含: libvpx, libyuv, opus, aom, ffmpeg, libmfx (注意这里是 libmfx)
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
+          # 关键修正：
+          # 1. 使用回退后的 vcpkg 版本
+          # 2. 包名改回 'intel-media-sdk' (旧版 vcpkg 里叫这个)
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证安装结果
+          # 验证 (旧版安装后的文件夹通常是 libmfx 或 mfx)
           if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
