@@ -18,6 +18,7 @@ env:
   # === 依赖库版本 ===
   LLVM_VERSION: "15.0.6"
   SCITER_RUST_VERSION: "1.75"
+  FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
@@ -31,6 +32,8 @@ jobs:
     with:
       upload-artifact: true
       target: windows-2022
+      configuration: Release  # 添加必需参数
+      platform: x64          # 添加必需参数
 
   # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
@@ -71,7 +74,9 @@ jobs:
         shell: bash
         run: |
           cd $(dirname $(dirname $(which flutter)))
-          [[ "3.24.5" == "${{ env.FLUTTER_VERSION }}" ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff || true
+          if [[ "${{ env.FLUTTER_VERSION }}" == "3.24.5" ]]; then
+            git apply flutter_3.24.4_dropdown_menu_enableFilter.diff || true
+          fi
 
       - uses: dtolnay/rust-toolchain@v1
         with:
