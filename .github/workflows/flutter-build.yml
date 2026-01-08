@@ -1,23 +1,23 @@
 name: Build Windows & Web
 
 on:
-  workflow_dispatch:
-  workflow_call:
+  workflow_dispatch: # 手动触发
+  workflow_call:     # 被其他流程调用
 
+# 赋予 GITHUB_TOKEN 写权限
 permissions:
   contents: write
 
 env:
+  # === 核心配置 ===
   FLUTTER_VERSION: "3.24.5"
   VERSION: "1.4.4"
   TAG_NAME: "nightly"
   UPLOAD_ARTIFACT: "true"
   
   # === 依赖库版本 ===
-  SCITER_RUST_VERSION: "1.75"
-  RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  SCITER_RUST_VERSION: "1.75"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
 
 jobs:
@@ -31,34 +31,23 @@ jobs:
     with:
       upload-artifact: true
       target: windows-2022
-      configuration: Release
-      platform: x64
-      target_version: Windows10
-    strategy:
-      fail-fast: false
 
   # Job 3: 编译 Windows EXE/MSI
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: windows-2022
+    
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: actions/download-artifact@v4
+      - name: Restore bridge files
+        uses: actions/download-artifact@master
         with:
           name: bridge-artifact
           path: ./
-
-      # === 1. 安装 NASM ===
-      - uses: ilammy/setup-nasm@v1
-
-      # === 2. 激活 MSVC 环境 ===
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
 
       - uses: KyleMayes/install-llvm-action@v1
         with:
@@ -69,39 +58,26 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Replace engine
-        shell: pwsh
+      - name: Install flutter rust bridge deps
         run: |
-          $ErrorActionPreference = "Stop"
-          flutter doctor -v
-          flutter precache --windows
-          
-          Write-Host "Downloading Custom Engine..."
-          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
-          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          
-          $flutterPath = (Get-Command flutter).Source
-          $flutterRoot = Split-Path (Split-Path $flutterPath -Parent) -Parent
-          $engineCachePath = Join-Path $flutterRoot "bin\cache\artifacts\engine\windows-x64-release"
-          
-          Write-Host "Overwriting Engine at: $engineCachePath"
-          Copy-Item -Path "windows-x64-release\*" -Destination $engineCachePath -Recurse -Force
+          dart pub global activate ffigen --version 5.0.1
+          $exists = Test-Path ~/.cargo/bin/flutter_rust_bridge_codegen.exe
+          if (-not $exists) {
+            cargo install flutter_rust_bridge_codegen --version ${{ env.FLUTTER_RUST_BRIDGE_VERSION }} --force
+          }
+        shell: powershell
 
-      - name: Patch flutter
+      - name: Patch Flutter (if needed)
         shell: bash
         run: |
-          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
-          if [[ "3.24.5" == "${{env.FLUTTER_VERSION}}" ]]; then
-             cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$FLUTTER_DIR"
-             cd "$FLUTTER_DIR"
-             git apply flutter_3.24.4_dropdown_menu_enableFilter.diff || echo "Patch failed or already applied"
-          fi
+          cd $(dirname $(dirname $(which flutter)))
+          [[ "3.24.5" == "${{ env.FLUTTER_VERSION }}" ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff || true
 
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.SCITER_RUST_VERSION }}
           targets: x86_64-pc-windows-msvc
-          components: "rustfmt"
+          components: rustfmt
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -113,105 +89,83 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      # === 3. 关键修复：添加 libmfx ===
-      # hwcodec 需要 libmfx (Intel Media SDK) 才能编译通过
       - name: Install vcpkg deps
         shell: bash
         run: |
-          $VCPKG_ROOT/vcpkg install --classic libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
+            echo "vcpkg install failed"
+            exit 1
+          fi
 
       - name: Build rustdesk
-        shell: pwsh
+        shell: bash
+        env:
+          VCPKG_ROOT: C:\vcpkg
         run: |
-          $ErrorActionPreference = "Stop"
-          # 确保环境变量指向 vcpkg 路径，这样 Rust 的 vcpkg crate 才能找到库文件
-          $env:VCPKG_ROOT = "C:\vcpkg"
-          
-          # 运行构建
-          python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-          
-          # 移动构建产物
-          Move-Item -Path ./flutter/build/windows/x64/runner/Release -Destination ./rustdesk -Force
-          
-          # 下载 USBMMIDD
-          Write-Host "Downloading usbmmidd..."
-          Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
-          Expand-Archive usbmmidd_v2.zip -DestinationPath .
-          Remove-Item -Path usbmmidd_v2\Win32 -Recurse -ErrorAction SilentlyContinue
-          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat" -ErrorAction SilentlyContinue
-          Move-Item -Path .\usbmmidd_v2 -Destination ./rustdesk -Force
-          
-          # 下载打印机驱动
-          try {
-            Write-Host "Downloading Printer Drivers..."
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
-            
-            Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
-            New-Item -ItemType Directory -Force -Path ./rustdesk/drivers
-            Move-Item -Path .\rustdesk_printer_driver_v4-1.4 -Destination ./rustdesk/drivers/RustDeskPrinterDriver -Force
-            
-            Expand-Archive printer_driver_adapter.zip -DestinationPath .
-            Move-Item -Path .\printer_driver_adapter.dll -Destination ./rustdesk -Force
-          } catch {
-            Write-Warning "Driver download failed, skipping drivers. Error: $_"
-          }
+          python3 res/inline-sciter.py
+          cargo build --features inline,flutter,vram --release --bins
 
-      - name: Check Runner.res
-        continue-on-error: true
+      - name: Build rustdesk portable packer
         shell: bash
         run: |
-          runner_res=$(find . -name "Runner.res");
-          if [ "$runner_res" != "" ]; then cp $runner_res ./libs/portable/Runner.res; fi
+          pushd libs/portable
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt
+          cargo build --release
+          popd
 
       - name: Download RustDeskTempTopMostWindow
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@master
+        if: env.UPLOAD_ARTIFACT == 'true'
         with:
           name: topmostwindow-artifacts
-          path: "./rustdesk"
+          path: ./rustdesk
 
-      - name: Generate PORTABLE EXE
+      - name: Generate Portable EXE
         shell: bash
+        if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           sed -i '/dpiAware/d' res/manifest.xml
-          pushd ./libs/portable
-          pip3 install -r requirements.txt
+          pushd libs/portable
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           popd
-          mkdir -p ./SignOutput
+          mkdir -p SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
       - uses: microsoft/setup-msbuild@v2
 
       - name: Build MSI
-        shell: pwsh
+        if: env.UPLOAD_ARTIFACT == 'true'
+        shell: bash
         run: |
-          Push-Location ./res/msi
+          pushd res/msi
           python preprocess.py --arp -d ../../rustdesk
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          Pop-Location
-          Move-Item -Path ./res/msi/Package/bin/x64/Release/en-us/Package.msi -Destination ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi -Force
+          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi
+          popd
 
-      - name: Publish Windows
-        uses: softprops/action-gh-release@v2
+      - name: Publish Windows artifacts
+        uses: softprops/action-gh-release@v1
+        if: env.UPLOAD_ARTIFACT == 'true'
         with:
-          tag_name: nightly
+          tag_name: ${{ env.TAG_NAME }}
           prerelease: true
           files: |
-            ./SignOutput/*.msi
-            ./SignOutput/*.exe
+            SignOutput/*.msi
+            SignOutput/*.exe
 
   # Job 4: 编译 Web 客户端
   build-rustdesk-web:
     name: Build Web
     runs-on: ubuntu-22.04
+    
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y wget npm
@@ -221,15 +175,10 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Patch flutter
-        shell: bash
-        run: |
-          FLUTTER_DIR=$(dirname $(dirname $(which flutter)))
-          if [[ "3.24.5" == "${{env.FLUTTER_VERSION}}" ]]; then
-             cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff "$FLUTTER_DIR"
-             cd "$FLUTTER_DIR"
-             git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
-          fi
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Build web
         shell: bash
@@ -241,23 +190,23 @@ jobs:
           echo "Downloading web assets..."
           wget -q https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
           tar xzf web_deps.tar.gz || echo "Extract warning"
+          
           cd ..
-          
-          echo "Building..."
+          echo "Building web client..."
           flutter build web --release --web-renderer canvaskit --no-tree-shake-icons
-
-          cd build
-          echo "RustDesk Web Client" > web/README.md
           
+          cd build
+          echo "RustDesk Web Client v${{ env.VERSION }}" > web/README.md
           PKG_NAME="rustdesk-${{ env.VERSION }}-web-basic"
           mv web "$PKG_NAME"
           tar czf "$PKG_NAME.tar.gz" "$PKG_NAME"
-          mv "$PKG_NAME.tar.gz" $GITHUB_WORKSPACE/
+          mv "$PKG_NAME.tar.gz" "$GITHUB_WORKSPACE/"
 
-      - name: Publish Web
-        uses: softprops/action-gh-release@v2
+      - name: Publish Web artifacts
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: nightly
+          tag_name: ${{ env.TAG_NAME }}
           prerelease: true
           files: |
-            *.tar.gz
+            rustdesk-${{ env.VERSION }}-web-basic.tar.gz
