@@ -22,7 +22,7 @@ env:
   RUST_VERSION: "1.75"
   LLVM_VERSION: "15.0.6"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  VCPKG_COMMIT_ID: "81c0029b3529369d120a104085600c7104a3e20e"
 
 jobs:
   # Job 1: 桥接代码
@@ -103,13 +103,14 @@ jobs:
       - name: Install vcpkg deps
         shell: bash
         run: |
-          # 修正点：将 'libmfx' 改为正确的包名 'intel-media-sdk'
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
+          # 1. 升级了 commit id 后，这里必须用 libmfx
+          # 2. 依然保留 --classic 和 --recurse
+          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg libmfx --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
           
-          # 验证安装 (可选)
-          # 注意：intel-media-sdk 安装后，库文件通常名为 libmfx.lib 或 mfx.lib
-          if [ ! -d "$VCPKG_ROOT/installed/x64-windows-static/include/mfx" ]; then
-            echo "Warning: MFX headers not found, build might fail!"
+          # 验证
+          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
+             echo "Error: libmfx.lib still not found!"
+             exit 1
           fi
 
       - name: Build rustdesk
