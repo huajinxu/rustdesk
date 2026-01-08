@@ -92,48 +92,56 @@ jobs:
         with:
           prefix-key: windows-2022
 
-      # =========================================================
-      # 关键修正区域：VCPKG 环境配置
-      # =========================================================
-      
-      # =========================================================
-      # 终极修正：VCPKG 环境配置
-      # =========================================================
-      
-      # 1. 显式设置 VCPKG_ROOT 环境变量
+
+
+      # 1. 显式设置环境变量
       - name: Set VCPKG_ROOT
         run: echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" >> $GITHUB_ENV
         shell: bash
 
-      # 2. 安装 NASM
+      # 2. 安装 NASM (FFmpeg 必须)
       - name: Install NASM
         run: choco install nasm -y
 
-      # 3. 下载 vcpkg (不指定 ref，下载完整历史)
-      # 必须 fetch-depth: 0，否则无法在下一步切换到指定 commit
-      - name: Checkout vcpkg
-        uses: actions/checkout@v4
-        with:
-          repository: microsoft/vcpkg
-          path: vcpkg
-          fetch-depth: 0  
-
-      # 4. 手动切换到 2024年的 Commit 并初始化
-      - name: Bootstrap vcpkg
-        shell: cmd
+      # 3. 手动克隆、切版本、Bootstrap (三合一，确保原子性)
+      - name: Setup Vcpkg (Manual & Force)
+        shell: bash
         run: |
-          cd vcpkg
-          echo "Switching to commit ${{ env.VCPKG_COMMIT_ID }}..."
-          git checkout ${{ env.VCPKG_COMMIT_ID }}
+          # 清理可能存在的残留
+          rm -rf vcpkg
           
-          echo "Bootstrapping vcpkg..."
-          bootstrap-vcpkg.bat
+          echo "Cloning vcpkg master..."
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          
+          # 关键步骤：强行重置到 2023 年的 Commit ID
+          echo "Force checkout to 2023 version (120deac)..."
+          git checkout 120deac3062162151622ca4860575a33844ba10b
+          
+          # 致命检查：如果这个文件夹不存在，说明版本没切过去，立即报错停止
+          if [ ! -d "ports/intel-media-sdk" ]; then
+            echo "FATAL ERROR: intel-media-sdk directory missing!"
+            echo "Current Commit is:"
+            git rev-parse HEAD
+            exit 1
+          else
+            echo "SUCCESS: intel-media-sdk directory found."
+          fi
+          
+          echo "Bootstrapping..."
+          ./bootstrap-vcpkg.bat
 
-      # 5. 安装依赖 (使用 2024年正确的包名: libmfx)
+      # 4. 安装依赖 (使用 intel-media-sdk)
       - name: Install vcpkg deps
         shell: bash
         run: |
+          # 预防措施：删除项目根目录的 vcpkg.json，防止它干扰 vcpkg 的经典模式
+          rm -f vcpkg.json
+          
+          # 使用 2023 年的包名: intel-media-sdk
           $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom ffmpeg intel-media-sdk --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed" --recurse --classic
+          
+          # 验证结果
           if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/lib/libmfx.lib" ]; then
              echo "Error: libmfx.lib not found!"
              exit 1
