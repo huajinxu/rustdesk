@@ -119,16 +119,15 @@ jobs:
           ls -la installed/x64-windows-static/include/vpx/ || echo "⚠️ libvpx not found"
           ls -la installed/x64-windows-static/include/opus/ || echo "⚠️ opus not found"
           ls -la installed/x64-windows-static/include/libavutil/ || echo "⚠️ FFmpeg not found"
-          ls -la installed/x64-windows-static/lib/ | grep -i vpx || echo "⚠️ libvpx libs not found"
-          ls -la installed/x64-windows-static/lib/ | grep -i opus || echo "⚠️ opus libs not found"
 
-      - name: Build rustdesk
+      - name: Build rustdesk (without hardware acceleration)
         shell: bash
         env:
           VCPKG_ROOT: C:\vcpkg
         run: |
           python3 res/inline-sciter.py
-          cargo build --features inline,flutter,vram --release --bins
+          # 移除 vram 特性以避免 hwcodec/libmfx 依赖
+          cargo build --features inline,flutter --release --bins
 
       - name: Build rustdesk portable packer
         shell: bash
