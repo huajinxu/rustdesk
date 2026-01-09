@@ -120,7 +120,7 @@ jobs:
           ls -la installed/x64-windows-static/include/opus/ || echo "⚠️ opus not found"
           ls -la installed/x64-windows-static/include/libavutil/ || echo "⚠️ FFmpeg not found"
 
-      - name: Build rustdesk (without hardware acceleration)
+      - name: Build rustdesk
         shell: bash
         env:
           VCPKG_ROOT: C:\vcpkg
@@ -129,30 +129,38 @@ jobs:
           # 移除 vram 特性以避免 hwcodec/libmfx 依赖
           cargo build --features inline,flutter --release --bins
 
+      - name: Download RustDeskTempTopMostWindow
+        uses: actions/download-artifact@master
+        with:
+          name: topmostwindow-artifacts
+          path: ./target/release
+
+      - name: Prepare portable packer files
+        shell: bash
+        run: |
+          # 移除 dpiAware
+          sed -i '/dpiAware/d' res/manifest.xml
+          
+          # 创建 rustdesk 目录并复制文件
+          mkdir -p rustdesk
+          cp target/release/rustdesk.exe rustdesk/
+          cp target/release/WindowInjection.dll rustdesk/ || echo "WindowInjection.dll not found, skipping"
+          
+          # 生成 portable 所需文件
+          pushd libs/portable
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          popd
+
       - name: Build rustdesk portable packer
         shell: bash
         run: |
           pushd libs/portable
-          python3 -m pip install --upgrade pip
-          pip3 install -r requirements.txt
           cargo build --release
           popd
-
-      - name: Download RustDeskTempTopMostWindow
-        uses: actions/download-artifact@master
-        if: env.UPLOAD_ARTIFACT == 'true'
-        with:
-          name: topmostwindow-artifacts
-          path: ./rustdesk
-
-      - name: Generate Portable EXE
-        shell: bash
-        if: env.UPLOAD_ARTIFACT == 'true'
-        run: |
-          sed -i '/dpiAware/d' res/manifest.xml
-          pushd libs/portable
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
-          popd
+          
+          # 移动生成的 portable exe
           mkdir -p SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
 
