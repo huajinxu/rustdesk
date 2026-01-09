@@ -135,22 +135,33 @@ jobs:
           name: topmostwindow-artifacts
           path: ./target/release
 
+      - name: Prepare rustdesk directory for packaging
+        shell: bash
+        run: |
+          # 创建 rustdesk 目录并复制所有必需文件
+          mkdir -p rustdesk
+          
+          # 复制主程序 - 注意这里要用正确的大小写 RustDesk.exe
+          cp target/release/rustdesk.exe rustdesk/RustDesk.exe
+          
+          # 复制 DLL
+          cp target/release/WindowInjection.dll rustdesk/ || echo "Warning: WindowInjection.dll not found"
+          
+          # 验证文件
+          echo "Files in rustdesk directory:"
+          ls -lh rustdesk/
+
       - name: Prepare portable packer files
         shell: bash
         run: |
           # 移除 dpiAware
           sed -i '/dpiAware/d' res/manifest.xml
           
-          # 创建 rustdesk 目录并复制文件
-          mkdir -p rustdesk
-          cp target/release/rustdesk.exe rustdesk/
-          cp target/release/WindowInjection.dll rustdesk/ || echo "WindowInjection.dll not found, skipping"
-          
           # 生成 portable 所需文件
           pushd libs/portable
           python3 -m pip install --upgrade pip
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/RustDesk.exe
           popd
 
       - name: Build rustdesk portable packer
@@ -170,21 +181,10 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         shell: bash
         run: |
-          # 进入 MSI 目录并构建
           pushd res/msi
-          
-          # 使用 -c 跳过从 exe 读取元数据，手动指定所有参数
-          python preprocess.py -c \
-            -v ${{ env.VERSION }} \
-            --app-name "RustDesk" \
-            -m "RustDesk" \
-            --revision-version 0
-          
-          # 恢复并构建 MSI
+          python preprocess.py --arp -d ../../rustdesk
           nuget restore msi.sln
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          
-          # 移动生成的 MSI
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi
           popd
 
