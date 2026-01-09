@@ -178,8 +178,8 @@ jobs:
           # 进入 MSI 目录并构建
           pushd res/msi
           
-          # 运行预处理，使用 --custom-version 指定版本
-          python preprocess.py --arp -d ../../rustdesk --custom-version ${{ env.VERSION }}
+          # 使用 -v 参数指定版本
+          python preprocess.py --arp -d ../../rustdesk -v ${{ env.VERSION }}
           
           # 恢复并构建 MSI
           nuget restore msi.sln
