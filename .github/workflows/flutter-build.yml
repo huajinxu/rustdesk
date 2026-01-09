@@ -97,21 +97,24 @@ jobs:
 
       - name: Install vcpkg dependencies
         shell: bash
-        env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows-static
         run: |
-          # 使用 manifest 模式安装依赖
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static; then
-            echo "vcpkg install failed"
-            exit 1
-          fi
+          cd $VCPKG_ROOT
           
-          # 检查是否有 FFmpeg 头文件
-          if [ ! -f "$VCPKG_ROOT/installed/x64-windows-static/include/libavutil/pixfmt.h" ]; then
-            echo "FFmpeg headers not found, installing manually..."
-            cd $VCPKG_ROOT
-            ./vcpkg install ffmpeg:x64-windows-static --recurse || true
-          fi
+          # 先安装 manifest 中的依赖
+          echo "Installing dependencies from vcpkg.json..."
+          ./vcpkg install --triplet x64-windows-static || true
+          
+          # 手动安装缺失的关键依赖
+          echo "Installing additional required packages..."
+          ./vcpkg install opus:x64-windows-static --recurse
+          ./vcpkg install ffmpeg:x64-windows-static --recurse
+          ./vcpkg install libyuv:x64-windows-static --recurse
+          ./vcpkg install aom:x64-windows-static --recurse
+          
+          # 验证安装
+          echo "Checking installed files..."
+          ls -la installed/x64-windows-static/include/opus/ || echo "Opus headers not found"
+          ls -la installed/x64-windows-static/include/libavutil/ || echo "FFmpeg headers not found"
 
       - name: Build rustdesk
         shell: bash
@@ -119,8 +122,7 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
         run: |
           python3 res/inline-sciter.py
-          # 移除 vram 特性以避免硬件编解码依赖
-          cargo build --features inline,flutter --release --bins
+          cargo build --features inline,flutter,vram --release --bins
 
       - name: Build rustdesk portable packer
         shell: bash
@@ -220,8 +222,8 @@ jobs:
           mv "$PKG_NAME.tar.gz" "$GITHUB_WORKSPACE/"
 
       - name: Publish Web artifacts
-        if: env.UPLOAD_ARTIFACT == 'true'
         uses: softprops/action-gh-release@v1
+        if: env.UPLOAD_ARTIFACT == 'true'
         with:
           tag_name: ${{ env.TAG_NAME }}
           prerelease: true
