@@ -104,17 +104,23 @@ jobs:
           echo "Installing dependencies from vcpkg.json..."
           ./vcpkg install --triplet x64-windows-static || true
           
-          # 手动安装缺失的关键依赖
-          echo "Installing additional required packages..."
-          ./vcpkg install opus:x64-windows-static --recurse
-          ./vcpkg install ffmpeg:x64-windows-static --recurse
-          ./vcpkg install libyuv:x64-windows-static --recurse
-          ./vcpkg install aom:x64-windows-static --recurse
+          # 安装所有必需的编解码库
+          echo "Installing codec libraries..."
+          ./vcpkg install \
+            libvpx:x64-windows-static \
+            opus:x64-windows-static \
+            ffmpeg:x64-windows-static \
+            libyuv:x64-windows-static \
+            aom:x64-windows-static \
+            --recurse
           
-          # 验证安装
-          echo "Checking installed files..."
-          ls -la installed/x64-windows-static/include/opus/ || echo "Opus headers not found"
-          ls -la installed/x64-windows-static/include/libavutil/ || echo "FFmpeg headers not found"
+          # 验证关键头文件
+          echo "Verifying installed packages..."
+          ls -la installed/x64-windows-static/include/vpx/ || echo "⚠️ libvpx not found"
+          ls -la installed/x64-windows-static/include/opus/ || echo "⚠️ opus not found"
+          ls -la installed/x64-windows-static/include/libavutil/ || echo "⚠️ FFmpeg not found"
+          ls -la installed/x64-windows-static/lib/ | grep -i vpx || echo "⚠️ libvpx libs not found"
+          ls -la installed/x64-windows-static/lib/ | grep -i opus || echo "⚠️ opus libs not found"
 
       - name: Build rustdesk
         shell: bash
