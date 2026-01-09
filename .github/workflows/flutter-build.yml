@@ -222,8 +222,8 @@ jobs:
           mv "$PKG_NAME.tar.gz" "$GITHUB_WORKSPACE/"
 
       - name: Publish Web artifacts
-        uses: softprops/action-gh-release@v1
         if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG_NAME }}
           prerelease: true
