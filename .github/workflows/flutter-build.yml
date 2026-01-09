@@ -172,14 +172,17 @@ jobs:
         run: |
           # 确保 rustdesk 目录存在并包含必要文件
           mkdir -p rustdesk
-          cp target/release/rustdesk.exe rustdesk/ || echo "Warning: rustdesk.exe not found"
+          cp target/release/rustdesk.exe rustdesk/RustDesk.exe || echo "Warning: rustdesk.exe not found"
           cp target/release/WindowInjection.dll rustdesk/ || echo "Warning: WindowInjection.dll not found"
+          
+          # 检查文件是否存在
+          ls -lh rustdesk/
           
           # 进入 MSI 目录并构建
           pushd res/msi
           
-          # 使用 -v 参数指定版本
-          python preprocess.py --arp -d ../../rustdesk -v ${{ env.VERSION }}
+          # 不使用 --arp 参数，直接指定版本和目录
+          python preprocess.py -d ../../rustdesk -v ${{ env.VERSION }}
           
           # 恢复并构建 MSI
           nuget restore msi.sln
