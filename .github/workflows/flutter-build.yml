@@ -36,7 +36,7 @@ jobs:
       platform: x64
       target_version: Windows10
 
-  # Job 3: 编译 Windows EXE/MSI
+  # Job 3: 编译 Windows EXE
   build-for-windows-flutter:
     name: Build Windows
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
@@ -100,11 +100,9 @@ jobs:
         run: |
           cd $VCPKG_ROOT
           
-          # 先安装 manifest 中的依赖
           echo "Installing dependencies from vcpkg.json..."
           ./vcpkg install --triplet x64-windows-static || true
           
-          # 安装所有必需的编解码库
           echo "Installing codec libraries..."
           ./vcpkg install \
             libvpx:x64-windows-static \
@@ -113,12 +111,6 @@ jobs:
             libyuv:x64-windows-static \
             aom:x64-windows-static \
             --recurse
-          
-          # 验证关键头文件
-          echo "Verifying installed packages..."
-          ls -la installed/x64-windows-static/include/vpx/ || echo "⚠️ libvpx not found"
-          ls -la installed/x64-windows-static/include/opus/ || echo "⚠️ opus not found"
-          ls -la installed/x64-windows-static/include/libavutil/ || echo "⚠️ FFmpeg not found"
 
       - name: Build rustdesk
         shell: bash
@@ -126,7 +118,6 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
         run: |
           python3 res/inline-sciter.py
-          # 移除 vram 特性以避免 hwcodec/libmfx 依赖
           cargo build --features inline,flutter --release --bins
 
       - name: Download RustDeskTempTopMostWindow
@@ -135,68 +126,36 @@ jobs:
           name: topmostwindow-artifacts
           path: ./target/release
 
-      - name: Prepare rustdesk directory for packaging
+      - name: Prepare rustdesk directory
         shell: bash
         run: |
-          # 创建 rustdesk 目录并复制所有必需文件
           mkdir -p rustdesk
-          
-          # 复制主程序 - 注意这里要用正确的大小写 RustDesk.exe
-          cp target/release/rustdesk.exe rustdesk/RustDesk.exe
-          
-          # 复制 DLL
-          cp target/release/WindowInjection.dll rustdesk/ || echo "Warning: WindowInjection.dll not found"
-          
-          # 验证文件
-          echo "Files in rustdesk directory:"
-          ls -lh rustdesk/
+          cp target/release/rustdesk.exe rustdesk/
+          cp target/release/WindowInjection.dll rustdesk/ || echo "WindowInjection.dll not found"
 
-      - name: Prepare portable packer files
+      - name: Build portable packer
         shell: bash
         run: |
-          # 移除 dpiAware
           sed -i '/dpiAware/d' res/manifest.xml
           
-          # 生成 portable 所需文件
           pushd libs/portable
           python3 -m pip install --upgrade pip
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/RustDesk.exe
-          popd
-
-      - name: Build rustdesk portable packer
-        shell: bash
-        run: |
-          pushd libs/portable
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           cargo build --release
           popd
           
-          # 移动生成的 portable exe
           mkdir -p SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64.exe
+          mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-x86_64-portable.exe
 
-      - uses: microsoft/setup-msbuild@v2
-
-      - name: Build MSI
-        if: env.UPLOAD_ARTIFACT == 'true'
-        shell: bash
-        run: |
-          pushd res/msi
-          python preprocess.py --arp -d ../../rustdesk
-          nuget restore msi.sln
-          msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-${{ env.VERSION }}-x86_64.msi
-          popd
-
-      - name: Publish Windows artifacts
+      - name: Publish Windows Portable EXE
         uses: softprops/action-gh-release@v1
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
           tag_name: ${{ env.TAG_NAME }}
           prerelease: true
           files: |
-            SignOutput/*.msi
-            SignOutput/*.exe
+            SignOutput/rustdesk-${{ env.VERSION }}-x86_64-portable.exe
 
   # Job 4: 编译 Web 客户端
   build-rustdesk-web:
